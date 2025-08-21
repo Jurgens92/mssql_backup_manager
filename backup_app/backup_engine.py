@@ -98,43 +98,81 @@ class MSSQLStreamBackup:
                 logger.info(f"Backed up {row_count} rows from {full_table_name}")
                 return row_count
 
-    def backup_database(self, database_name, progress_callback=None):
-        """Backup entire database by streaming all tables"""
+    def backup_database(self, database_name, progress_callback=None, include_schema=True):
+        """Enhanced backup with better error handling and schema support"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_dir = self.backup_path / f"{database_name}_{timestamp}"
         backup_dir.mkdir(exist_ok=True)
         
-        logger.info(f"Starting backup of database: {database_name}")
-        
         try:
+            # Backup schema information if requested
+            if include_schema:
+                self.backup_schema(database_name, backup_dir)
+            
             tables = self.get_database_tables(database_name)
             total_size = 0
             
             for i, (schema_name, table_name) in enumerate(tables):
-                output_file = backup_dir / f"{schema_name}_{table_name}.json.gz"
-                logger.info(f"Backing up table: {schema_name}.{table_name}")
-                
-                if progress_callback:
-                    progress_callback(f"Backing up {schema_name}.{table_name}")
-                
-                row_count = self.stream_table_data(database_name, schema_name, table_name, output_file)
-                total_size += output_file.stat().st_size
+                try:
+                    output_file = backup_dir / f"{schema_name}_{table_name}.json.gz"
+                    if progress_callback:
+                        progress_callback(f"Backing up {schema_name}.{table_name} ({i+1}/{len(tables)})")
+                    
+                    row_count = self.stream_table_data(database_name, schema_name, table_name, output_file)
+                    total_size += output_file.stat().st_size
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to backup table {schema_name}.{table_name}: {str(e)}")
+                    # Continue with other tables
+                    continue
             
-            # Create backup manifest
+            # Create backup manifest with more details
             manifest = {
                 'database': database_name,
                 'backup_timestamp': timestamp,
+                'backup_type': 'streaming_json',
                 'tables_count': len(tables),
                 'total_size': total_size,
+                'compression': 'gzip',
                 'tables': [{'schema': schema, 'table': table} for schema, table in tables]
             }
             
             with open(backup_dir / "backup_manifest.json", 'w') as f:
                 json.dump(manifest, f, indent=2)
             
-            logger.info(f"Backup completed successfully: {backup_dir}")
             return str(backup_dir), total_size
             
         except Exception as e:
             logger.error(f"Backup failed: {str(e)}")
             raise
+
+    def backup_schema(self, database_name, backup_dir):
+        """Backup database schema information"""
+        schema_info = {}
+        
+        with pyodbc.connect(self.get_connection_string(database_name)) as conn:
+            cursor = conn.cursor()
+            
+            # Get table schemas
+            cursor.execute("""
+                SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, 
+                    IS_NULLABLE, COLUMN_DEFAULT, CHARACTER_MAXIMUM_LENGTH
+                FROM INFORMATION_SCHEMA.COLUMNS
+                ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
+            """)
+            
+            for row in cursor.fetchall():
+                table_key = f"{row.TABLE_SCHEMA}.{row.TABLE_NAME}"
+                if table_key not in schema_info:
+                    schema_info[table_key] = {'columns': []}
+                
+                schema_info[table_key]['columns'].append({
+                    'name': row.COLUMN_NAME,
+                    'type': row.DATA_TYPE,
+                    'nullable': row.IS_NULLABLE == 'YES',
+                    'default': row.COLUMN_DEFAULT,
+                    'max_length': row.CHARACTER_MAXIMUM_LENGTH
+                })
+        
+        with open(backup_dir / "schema.json", 'w') as f:
+            json.dump(schema_info, f, indent=2)

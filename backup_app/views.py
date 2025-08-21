@@ -8,6 +8,7 @@ from .forms import SQLServerForm, TestConnectionForm
 from .tasks import backup_server_databases, backup_database_task
 from .backup_engine import MSSQLStreamBackup
 import json
+from django.utils import timezone
 
 def dashboard(request):
     """Main dashboard view"""
