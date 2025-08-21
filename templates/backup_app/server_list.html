@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+
+{% block page_title %}SQL Servers{% endblock %}
+
+{% block page_actions %}
+<a href="{% url 'server_create' %}" class="btn btn-primary">
+    <i class="fas fa-plus me-1"></i> Add Server
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        {% if servers %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Server Address</th>
+                            <th>Port</th>
+                            <th>Username</th>
+                            <th>Databases</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for server in servers %}
+                            <tr>
+                                <td>
+                                    <strong>{{ server.name }}</strong>
+                                </td>
+                                <td>{{ server.server_address }}</td>
+                                <td>{{ server.port }}</td>
+                                <td>{{ server.username }}</td>
+                                <td>
+                                    <span class="badge bg-info">{{ server.get_databases|length }} DB{{ server.get_databases|length|pluralize }}</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-{% if server.is_active %}success{% else %}secondary{% endif %}">
+                                        {% if server.is_active %}Active{% else %}Inactive{% endif %}
+                                    </span>
+                                </td>
+                                <td>{{ server.created_at|date:"M d, Y" }}</td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-info test-connection-btn" 
+                                                data-server-id="{{ server.id }}" title="Test Connection">
+                                            <i class="fas fa-plug"></i>
+                                        </button>
+                                        <form method="post" action="{% url 'start_backup' server.id %}" class="d-inline">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-success" title="Start Backup"
+                                                    onclick="return confirm('Start backup for all databases on {{ server.name }}?')">
+                                                <i class="fas fa-play"></i>
+                                            </button>
+                                        </form>
+                                        <a href="{% url 'server_edit' server.id %}" class="btn btn-outline-primary" title="Edit">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-server fa-4x text-muted mb-3"></i>
+                <h4>No servers configured</h4>
+                <p class="text-muted">Add your first SQL Server to get started with backups.</p>
+                <a href="{% url 'server_create' %}" class="btn btn-primary btn-lg">
+                    <i class="fas fa-plus me-2"></i> Add Your First Server
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Connection Test Modal -->
+<div class="modal fade" id="connectionTestModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Connection Test Result</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="connection-test-result">
+                    <!-- Result will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    $('.test-connection-btn').click(function() {
+        var serverId = $(this).data('server-id');
+        var modal = new bootstrap.Modal(document.getElementById('connectionTestModal'));
+        modal.show();
+        
+        $('#connection-test-result').html(`
+            <div class="text-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Testing...</span>
+                </div>
+                <p class="mt-2">Testing connection...</p>
+            </div>
+        `);
+        
+        $.post('{% url "test_connection" %}', {
+            'server_id': serverId,
+            'csrfmiddlewaretoken': csrftoken
+        }).done(function(data) {
+            var alertClass = data.success ? 'alert-success' : 'alert-danger';
+            var icon = data.success ? 'fa-check-circle' : 'fa-times-circle';
+            
+            $('#connection-test-result').html(`
+                <div class="alert ${alertClass} d-flex align-items-center" role="alert">
+                    <i class="fas ${icon} me-2"></i>
+                    <div>${data.message}</div>
+                </div>
+            `);
+        }).fail(function() {
+            $('#connection-test-result').html(`
+                <div class="alert alert-danger d-flex align-items-center" role="alert">
+                    <i class="fas fa-times-circle me-2"></i>
+                    <div>Connection test failed</div>
+                </div>
+            `);
+        });
+    });
+});
+</script>
+{% endblock %}

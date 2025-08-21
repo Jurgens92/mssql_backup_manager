@@ -1,0 +1,206 @@
+{% extends 'base.html' %}
+
+{% block page_title %}Backup Jobs{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-3">
+                <select name="status" class="form-select">
+                    <option value="">All Statuses</option>
+                    <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Pending</option>
+                    <option value="running" {% if status_filter == 'running' %}selected{% endif %}>Running</option>
+                    <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>Completed</option>
+                    <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select name="server" class="form-select">
+                    <option value="">All Servers</option>
+                    {% for server in servers %}
+                        <option value="{{ server.id }}" {% if server_filter == server.id|stringformat:"s" %}selected{% endif %}>
+                            {{ server.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-filter me-1"></i> Filter
+                </button>
+                <a href="{% url 'job_list' %}" class="btn btn-outline-secondary">
+                    <i class="fas fa-times me-1"></i> Clear
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Jobs Table -->
+<div class="card">
+    <div class="card-body">
+        {% if page_obj %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Server</th>
+                            <th>Database</th>
+                            <th>Status</th>
+                            <th>Started</th>
+                            <th>Duration</th>
+                            <th>Size</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for job in page_obj %}
+                            <tr>
+                                <td>
+                                    <strong>{{ job.server.name }}</strong>
+                                </td>
+                                <td>{{ job.database_name }}</td>
+                                <td>
+                                    <span class="badge bg-{% if job.status == 'completed' %}success{% elif job.status == 'failed' %}danger{% elif job.status == 'running' %}warning{% else %}secondary{% endif %}">
+                                        {% if job.status == 'running' %}
+                                            <i class="fas fa-spinner fa-spin me-1"></i>
+                                        {% endif %}
+                                        {{ job.get_status_display }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if job.started_at %}
+                                        {{ job.started_at|date:"M d, Y H:i" }}
+                                    {% else %}
+                                        <span class="text-muted">Not started</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if job.started_at and job.completed_at %}
+                                        {% with duration=job.completed_at|timesince:job.started_at %}
+                                            {{ duration }}
+                                        {% endwith %}
+                                    {% elif job.started_at and job.status == 'running' %}
+                                        <span class="text-warning">
+                                            <i class="fas fa-clock me-1"></i>
+                                            {{ job.started_at|timesince }} ago
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if job.file_size %}
+                                        {% load humanize %}
+                                        {{ job.file_size|filesizeformat }}
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{% url 'job_detail' job.id %}" class="btn btn-outline-info" title="View Details">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                        {% if job.status == 'running' %}
+                                            <form method="post" action="{% url 'cancel_job' job.id %}" class="d-inline">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-outline-danger" title="Cancel Job"
+                                                        onclick="return confirm('Cancel this backup job?')">
+                                                    <i class="fas fa-stop"></i>
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                        {% if job.status == 'failed' and job.error_message %}
+                                            <button class="btn btn-outline-warning view-error-btn" 
+                                                    data-error="{{ job.error_message }}" title="View Error">
+                                                <i class="fas fa-exclamation-triangle"></i>
+                                            </button>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination -->
+            {% if page_obj.has_other_pages %}
+                <nav aria-label="Job pagination" class="mt-4">
+                    <ul class="pagination justify-content-center">
+                        {% if page_obj.has_previous %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}{% if server_filter %}&server={{ server_filter }}{% endif %}">First</a>
+                            </li>
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if server_filter %}&server={{ server_filter }}{% endif %}">Previous</a>
+                            </li>
+                        {% endif %}
+                        
+                        <li class="page-item active">
+                            <span class="page-link">
+                                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                            </span>
+                        </li>
+                        
+                        {% if page_obj.has_next %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if server_filter %}&server={{ server_filter }}{% endif %}">Next</a>
+                            </li>
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if server_filter %}&server={{ server_filter }}{% endif %}">Last</a>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            {% endif %}
+        {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-tasks fa-4x text-muted mb-3"></i>
+                <h4>No backup jobs found</h4>
+                <p class="text-muted">Start your first backup from the dashboard.</p>
+                <a href="{% url 'dashboard' %}" class="btn btn-primary">
+                    <i class="fas fa-tachometer-alt me-1"></i> Go to Dashboard
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Error Modal -->
+<div class="modal fade" id="errorModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-exclamation-triangle text-warning me-2"></i>
+                    Error Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="error-content" class="bg-light p-3 rounded"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    $('.view-error-btn').click(function() {
+        var errorMessage = $(this).data('error');
+        $('#error-content').text(errorMessage);
+        var modal = new bootstrap.Modal(document.getElementById('errorModal'));
+        modal.show();
+    });
+});
+</script>
+{% endblock %}
