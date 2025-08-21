@@ -159,3 +159,40 @@ def cancel_job(request, job_id):
         messages.error(request, 'Job cannot be cancelled')
     
     return redirect('job_list')
+
+@require_http_methods(["POST"])
+def fetch_databases(request):
+    """Fetch databases from server via AJAX"""
+    server_address = request.POST.get('server_address')
+    port = request.POST.get('port')
+    username = request.POST.get('username')
+    password = request.POST.get('password')
+    
+    if not all([server_address, port, username, password]):
+        return JsonResponse({
+            'success': False,
+            'message': 'Please fill in all connection details first.'
+        })
+    
+    server_config = {
+        'name': 'temp',
+        'server_address': server_address,
+        'port': int(port),
+        'username': username,
+        'password': password,
+    }
+    
+    try:
+        backup_engine = MSSQLStreamBackup(server_config)
+        databases = backup_engine.get_all_databases()
+        
+        return JsonResponse({
+            'success': True,
+            'databases': databases,
+            'message': f'Found {len(databases)} databases'
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        })

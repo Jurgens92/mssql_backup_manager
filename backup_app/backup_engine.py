@@ -176,3 +176,21 @@ class MSSQLStreamBackup:
         
         with open(backup_dir / "schema.json", 'w') as f:
             json.dump(schema_info, f, indent=2)
+
+
+def get_all_databases(self):
+    """Get all user databases from the SQL Server (excluding system databases)"""
+    try:
+        with pyodbc.connect(self.get_connection_string(), timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT name 
+                FROM sys.databases 
+                WHERE database_id > 4  -- Exclude system databases (master, tempdb, model, msdb)
+                AND state = 0  -- Only online databases
+                AND name NOT IN ('ReportServer', 'ReportServerTempDB')  -- Exclude common system databases
+                ORDER BY name
+            """)
+            return [row.name for row in cursor.fetchall()]
+    except Exception as e:
+        raise Exception(f"Failed to retrieve databases: {str(e)}")
